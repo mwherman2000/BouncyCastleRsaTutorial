@@ -10,6 +10,9 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Runtime.CompilerServices;
 using Web7.DIDComm;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Microsoft.VisualBasic;
 
 namespace bc_csharp1
 {
@@ -23,14 +26,34 @@ namespace bc_csharp1
             string plaintext = "{ \"message\": \"Hello world!\" }";
             byte[] plaintextbytes = Encoding.UTF8.GetBytes(plaintext);
 
-            W7DIDCommMessage msg = new W7DIDCommMessage();
-            msg.ID = Guid.NewGuid().ToString();
-            msg.type = "https://example.org/example/1.0/hello";
-            msg.from = ALICE_DID;
-            msg.to.Add(BOB_DID);
-            msg.created_time = (long)(DateTime.Now.Subtract(DateTime.UnixEpoch)).TotalSeconds;
-            msg.expires_time = msg.created_time + 30 /* days*/ * 24 * 60 * 60;
-            msg.body = W7Util.Base64Encode(plaintext);
+            DateTime now = DateTime.Now;
+            W7DIDCommMessage msg = new W7DIDCommMessage(
+                Guid.NewGuid().ToString(),
+                "https://example.org/example/1.0/hello",
+                ALICE_DID,
+                new List<string>() { BOB_DID },
+                Guid.NewGuid().ToString(),
+                "",
+                W7Util.UNIX_time(now),
+                W7Util.UNIX_time(now.AddDays(30)),
+                W7Util.Base64Encode(plaintext)
+            );
+            string text64 = W7Util.Base64Encode("Foo bar!");
+            W7DIDCommAttachmentData d = new W7DIDCommAttachmentData("", "", "", text64, "");
+            W7DIDCommAttachment a = new W7DIDCommAttachment(
+                Guid.NewGuid().ToString(),
+                "Attachment abc",
+                "abc.txt",
+                "text/plain",
+                "",
+                W7Util.UNIX_time(now),
+                d,
+                0
+            );
+            msg.attachments.Add( a );
+
+            string msgJson = JsonSerializer.Serialize<W7DIDCommMessage>(msg);
+            Console.WriteLine(msgJson);
 
             // JWE using Microsoft: https://www.scottbrady91.com/c-sharp/json-web-encryption-jwe-in-dotnet-core
             var signingKey = ECDsa.Create(ECCurve.NamedCurves.nistP256); // private key for signing, public key for validation
@@ -49,7 +72,7 @@ namespace bc_csharp1
             {
                 Issuer = ALICE_DID,
                 Audience = BOB_DID,
-                Claims = new Dictionary<string, object> { { "body", plaintext } },
+                Claims = new Dictionary<string, object> { { "body", msgJson } },
 
                 // private key for signing
                 SigningCredentials = new SigningCredentials(Alice_privateSigningKey, SecurityAlgorithms.EcdsaSha256),
