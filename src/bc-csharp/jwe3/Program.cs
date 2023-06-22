@@ -56,15 +56,30 @@ namespace bc_csharp1
             Console.WriteLine(msgJson);
 
             // JWE using Microsoft: https://www.scottbrady91.com/c-sharp/json-web-encryption-jwe-in-dotnet-core
-            var signingKey = ECDsa.Create(ECCurve.NamedCurves.nistP256); // private key for signing, public key for validation
+            int bytesRead;
             var Alice_signingKid = Guid.NewGuid().ToString(); // "29b4adf8bcc941dc8ce40a6d0227b6d3";
-            var Alice_privateSigningKey = new ECDsaSecurityKey(signingKey) { KeyId = Alice_signingKid };
-            var Alice_publicSigningKey = new ECDsaSecurityKey(ECDsa.Create(signingKey.ExportParameters(false))) { KeyId = Alice_signingKid };
+            Console.WriteLine("Alice kid: " + Alice_signingKid);
+            ECDsa Alice_signingKey = ECDsa.Create(ECCurve.NamedCurves.nistP256); // private key for signing, public key for validation
+            var Alice_privateSigningKey = new ECDsaSecurityKey(Alice_signingKey) { KeyId = Alice_signingKid };
+            var Alice_publicSigningKey = new ECDsaSecurityKey(ECDsa.Create(Alice_signingKey.ExportParameters(false))) { KeyId = Alice_signingKid };
 
-            var encryptionKey = RSA.Create(3072); // public key for encryption, private key for decryption
+            byte[] Alice_signingPrivateKeyExported = Alice_signingKey.ExportECPrivateKey(); // Exports public and private keys
+            ECDsa Alice_signingKey2 = ECDsa.Create();
+            Alice_signingKey2.ImportECPrivateKey(Alice_signingPrivateKeyExported, out bytesRead); // Imports public and private keys
+            var Alice_privateSigningKey2 = new ECDsaSecurityKey(Alice_signingKey2) { KeyId = Alice_signingKid };
+            var Alice_publicSigningKey2 = new ECDsaSecurityKey(ECDsa.Create(Alice_signingKey2.ExportParameters(false))) { KeyId = Alice_signingKid };
+
             var Bob_encryptionKid = Guid.NewGuid().ToString(); // "8524e3e6674e494f85c5c775dcd602c5";
-            var Bob_privateEncryptionKey = new RsaSecurityKey(encryptionKey) { KeyId = Bob_encryptionKid };
-            var Bob_publicEncryptionKey = new RsaSecurityKey(encryptionKey.ExportParameters(false)) { KeyId = Bob_encryptionKid };
+            Console.WriteLine("Bob kid: " + Bob_encryptionKid);
+            var Bob_encryptionKey = RSA.Create(3072); // public key for encryption, private key for decryption
+            var Bob_privateEncryptionKey = new RsaSecurityKey(Bob_encryptionKey) { KeyId = Bob_encryptionKid };
+            var Bob_publicEncryptionKey = new RsaSecurityKey(Bob_encryptionKey.ExportParameters(false)) { KeyId = Bob_encryptionKid };
+
+            byte[] Bob_encryptionPrivateKeyExported =  Bob_encryptionKey.ExportRSAPrivateKey(); // Exports public and private keys
+            var Bob_encryptionKey2 = RSA.Create();
+            Bob_encryptionKey2.ImportRSAPrivateKey(Bob_encryptionPrivateKeyExported, out bytesRead); // Imports public and private keys
+            var Bob_privateEncryptionKey2 = new RsaSecurityKey(Bob_encryptionKey2) { KeyId = Bob_encryptionKid };
+            var Bob_publicEncryptionKey2 = new RsaSecurityKey(Bob_encryptionKey2.ExportParameters(false)) { KeyId = Bob_encryptionKid };
 
             var handler = new JsonWebTokenHandler();
 
@@ -82,6 +97,21 @@ namespace bc_csharp1
                     Bob_publicEncryptionKey, SecurityAlgorithms.RsaOAEP, SecurityAlgorithms.Aes256CbcHmacSha512)
             });
 
+            string[] tokenparts = token.Split('.');
+            int index = 0;
+            foreach (string part in tokenparts)
+            {
+                Console.WriteLine(index.ToString() + ": " + part);
+                if (index == 0)
+                {
+                    // https://learn.microsoft.com/en-us/dotnet/api/microsoft.identitymodel.tokens.base64urlencoder?view=msal-web-dotnet-latest
+                    string spart = Base64UrlEncoder.Decode(part);
+                    Console.WriteLine(index.ToString() + ": " + spart);
+                }
+                index++;
+            }
+
+
             W7DIDCommMessageJWE em = new W7DIDCommMessageJWE(ALICE_DID, token);
 
             TokenValidationResult result = handler.ValidateToken(
@@ -92,10 +122,10 @@ namespace bc_csharp1
                     ValidAudience = BOB_DID,
 
                     // Alice's public key to verify signature
-                    IssuerSigningKey = Alice_publicSigningKey,
+                    IssuerSigningKey = Alice_publicSigningKey2,
 
                     // Bob's private key for decryption
-                    TokenDecryptionKey = Bob_privateEncryptionKey
+                    TokenDecryptionKey = Bob_privateEncryptionKey2
                 });
 
             Console.WriteLine("SenderID: " + em.SenderID);
