@@ -40,6 +40,7 @@ namespace bc_csharp1
             string plaintext = "{ \"message\": \"Hello world!\" }";
             byte[] plaintextbytes = Encoding.UTF8.GetBytes(plaintext);
 
+            // 0. Create a Web 7.0 (unencrypted) DIDComm Message (with Attachment)
             DateTime now = DateTime.Now;
             W7DIDCommMessage msg = new W7DIDCommMessage(
                 DID_MESSAGEID + Guid.NewGuid().ToString(),
@@ -72,7 +73,7 @@ namespace bc_csharp1
             // JWE using Microsoft: https://www.scottbrady91.com/c-sharp/json-web-encryption-jwe-in-dotnet-core
             int bytesRead;
 
-
+            // 1. Create ECDsa signing keys (Alice)
             var Alice_signingKid = DID_KEYID_SIGN + Guid.NewGuid().ToString(); // "29b4adf8bcc941dc8ce40a6d0227b6d3";
             Console.WriteLine("Alice kid: " + Alice_signingKid);
             ECDsa Alice_signingKeyPrivate = ECDsa.Create(ECCurve.NamedCurves.nistP256);
@@ -80,6 +81,7 @@ namespace bc_csharp1
             ECDsaSecurityKey Alice_privateSigningKey = new ECDsaSecurityKey(Alice_signingKeyPrivate) { KeyId = Alice_signingKid };
             ECDsaSecurityKey Alice_publicSigningKey = new ECDsaSecurityKey(Alice_signingKeyPublic) { KeyId = Alice_signingKid };
 
+            // 2. Signing an arbitrary string (or byte array)
             var hash = SHA256.HashData(plaintextbytes);
             var hashsig = Alice_signingKeyPrivate.SignHash(hash);
             bool hashv1 = Alice_signingKeyPrivate.VerifyHash(hash, hashsig);
@@ -89,6 +91,7 @@ namespace bc_csharp1
             bool v1 = Alice_signingKeyPrivate.VerifyData(plaintextbytes, sig, HashAlgorithmName.SHA256);
             bool v2 = Alice_signingKeyPublic.VerifyData(plaintextbytes, sig, HashAlgorithmName.SHA256);
 
+            // 3. Serialize signing EDsaSecurityKey as JsonWebKey
             byte[] Alice_signingPrivateKeyExported = Alice_signingKeyPrivate.ExportECPrivateKey(); // Exports public and private keys
             ECDsa Alice_signingKey2 = ECDsa.Create();
             Alice_signingKey2.ImportECPrivateKey(Alice_signingPrivateKeyExported, out bytesRead); // Imports public and private keys
@@ -101,12 +104,13 @@ namespace bc_csharp1
             string Alice_signingKeyJson3 = JsonSerializer.Serialize(Alice_signingKeyPWK3);
             Console.WriteLine(Alice_signingKeyJson3);
 
+            // 4. Desearilize signing JsonWebKey as EDsaSecurityKey
             // https://www.scottbrady91.com/c-sharp/ecdsa-key-loading
             ECDsa Alice_signingKey4 = W7Util.ConvertJWKToEDSASecurityKey(Alice_signingKeyPWK3);
             ECDsaSecurityKey Alice_privateSigningKey4 = new ECDsaSecurityKey(Alice_signingKey4) { KeyId = Alice_signingKid };
             ECDsaSecurityKey Alice_publicSigningKey4 = new ECDsaSecurityKey(ECDsa.Create(Alice_signingKey4.ExportParameters(false))) { KeyId = Alice_signingKid };
 
-
+            // 5. Create RSA encryption keys (Bob)
             var Bob_encryptionKid = DID_KEYID_ENCRYPT + Guid.NewGuid().ToString(); // "8524e3e6674e494f85c5c775dcd602c5";
             Console.WriteLine("Bob kid: " + Bob_encryptionKid);
             RSA Bob_encryptionKeyPrivate = RSA.Create(3072);
@@ -114,11 +118,12 @@ namespace bc_csharp1
             RsaSecurityKey Bob_privateEncryptionKey = new RsaSecurityKey(Bob_encryptionKeyPrivate) { KeyId = Bob_encryptionKid };
             RsaSecurityKey Bob_publicEncryptionKey = new RsaSecurityKey(Bob_encryptionKeyPublic) { KeyId = Bob_encryptionKid };
 
+            // 6. Serialize encryption RSASecurityKey as a JsonWebKey
             byte[] Bob_encryptionPrivateKeyExported =  Bob_encryptionKeyPrivate.ExportRSAPrivateKey(); // Exports public and private keys
-            var Bob_encryptionKey2 = RSA.Create();
-            Bob_encryptionKey2.ImportRSAPrivateKey(Bob_encryptionPrivateKeyExported, out bytesRead); // Imports public and private keys
-            RsaSecurityKey Bob_privateEncryptionKey2 = new RsaSecurityKey(Bob_encryptionKey2) { KeyId = Bob_encryptionKid };
-            RsaSecurityKey Bob_publicEncryptionKey2 = new RsaSecurityKey(Bob_encryptionKey2.ExportParameters(false)) { KeyId = Bob_encryptionKid };
+            var Bob_encryptionPrivateKey2 = RSA.Create();
+            Bob_encryptionPrivateKey2.ImportRSAPrivateKey(Bob_encryptionPrivateKeyExported, out bytesRead); // Imports public and private keys
+            RsaSecurityKey Bob_privateEncryptionKey2 = new RsaSecurityKey(Bob_encryptionPrivateKey2) { KeyId = Bob_encryptionKid };
+            RsaSecurityKey Bob_publicEncryptionKey2 = new RsaSecurityKey(Bob_encryptionPrivateKey2.ExportParameters(false)) { KeyId = Bob_encryptionKid };
 
             JsonWebKey Bob_encryptionPublicKeyPWK2 = JsonWebKeyConverter.ConvertFromRSASecurityKey(Bob_publicEncryptionKey2);
             RsaSecurityKey Bob_encryptionKey3 = new RsaSecurityKey(Bob_encryptionKeyPrivate);
@@ -126,11 +131,21 @@ namespace bc_csharp1
             string Bob_encryptionKeyJson3 = JsonSerializer.Serialize(Bob_encryptionKeyPWK3);
             Console.WriteLine(Bob_encryptionKeyJson3);
 
+            // 7a. Encrypt an arbitrary string (byte array) using public RSA key
+            byte[] bytesEncrypted = W7RSACrypo.RSAEncrypt(plaintextbytes, Bob_encryptionKeyPrivate.ExportParameters(false), false);
+
+            // 7b. Decrypt an encrypted string (byte array) using private RSA key
+            byte[] bytesDecrypted = W7RSACrypo.RSADecrypt(bytesEncrypted, Bob_encryptionKeyPrivate.ExportParameters(true), false);
+            string textDecrypted = Encoding.UTF8.GetString(bytesDecrypted);
+            Console.WriteLine(textDecrypted);
+
+            // 8. Deserialize encryption JsonWebKey into an RSASecurityKey
             // https://stackoverflow.com/questions/64217089/what-is-the-correct-way-to-transform-jwk-to-rsa-key-value-pair
             RSA Bob_encryptionKey4 = W7Util.ConvertJWKToRSASecurityKey(Bob_encryptionKeyPWK3);
             RsaSecurityKey Bob_privateEncryptionKey4 = new RsaSecurityKey(Bob_encryptionKey4) { KeyId = Bob_encryptionKid };
             RsaSecurityKey Bob_publicEncryptionKey4 = new RsaSecurityKey(Bob_encryptionKey4.ExportParameters(false)) { KeyId = Bob_encryptionKid };
 
+            // 9. Create (encode) authcrypted JWE token for DIDComm Message (with Attachment)
             var handler = new JsonWebTokenHandler();
 
             string token = handler.CreateToken(new SecurityTokenDescriptor
@@ -148,7 +163,7 @@ namespace bc_csharp1
                 SecurityAlgorithms.RsaOAEP, SecurityAlgorithms.Aes256CbcHmacSha512)
             });
 
-
+            // 10. Add Web 7.0 DIDComm JWE header
             W7DIDCommMessageJWE em = new W7DIDCommMessageJWE(DID_ALICE, token);
             string[] tokenparts = em.Token.Split('.');
             // https://learn.microsoft.com/en-us/dotnet/api/microsoft.identitymodel.tokens.base64urlencoder?view=msal-web-dotnet-latest
@@ -161,7 +176,7 @@ namespace bc_csharp1
                 index++;
             }
 
-
+            // 11. Validate (decode) authcrypted JWE token for DIDComm Message (with Attachment)
             TokenValidationResult result = handler.ValidateToken(
                 em.Token,
                 new TokenValidationParameters
